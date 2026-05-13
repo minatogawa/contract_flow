@@ -5,12 +5,15 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_DIR = path.join(ROOT, 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
-const DB_PATH = path.join(DATA_DIR, 'db.json');
+const DB_PATH = path.join(DATA_DIR, 'app.db');
+const LEGACY_JSON_DB_PATH = path.join(DATA_DIR, 'db.json');
+let sqlite = null;
 
 loadEnv();
 
@@ -46,7 +49,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`ContractFlow demo running at ${APP_URL}`);
+  const localUrl = `http://localhost:${PORT}`;
+  const appUrlNote = APP_URL === localUrl ? '' : ` (APP_URL=${APP_URL})`;
+  console.log(`ContractFlow demo listening on ${localUrl}${appUrlNote}`);
 });
 
 function loadEnv() {
@@ -73,37 +78,376 @@ function loadEnv() {
 async function ensureStore() {
   await fsp.mkdir(DATA_DIR, { recursive: true });
   await fsp.mkdir(UPLOAD_DIR, { recursive: true });
-  if (!fs.existsSync(DB_PATH)) {
-    await writeDb({
-      users: [],
-      sessions: [],
-      payments: [],
-      documents: [],
-      chunks: []
-    });
-  }
+  sqlite = new DatabaseSync(DB_PATH);
+  sqlite.exec(`
+    PRAGMA foreign_keys = ON;
+    PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
+  `);
+  migrateSqliteSchema();
+  await migrateLegacyJsonStore();
   await reindexStoredDocumentsIfNeeded();
 }
 
 async function readDb() {
-  try {
-    const raw = await fsp.readFile(DB_PATH, 'utf8');
-    const db = JSON.parse(raw);
-    db.users ||= [];
-    db.sessions ||= [];
-    db.payments ||= [];
-    db.documents ||= [];
-    db.chunks ||= [];
-    return db;
-  } catch {
-    return { users: [], sessions: [], payments: [], documents: [], chunks: [] };
-  }
+  ensureSqlite();
+  return {
+    users: sqlite.prepare(`
+      SELECT id, email, password_hash, salt, plan, usage_questions, usage_uploads,
+        mercado_pago_customer_id, premium_since, created_at
+      FROM users
+      ORDER BY created_at ASC
+    `).all().map(rowToUser),
+    sessions: sqlite.prepare(`
+      SELECT token, user_id, expires_at, created_at
+      FROM sessions
+      ORDER BY created_at ASC
+    `).all().map(rowToSession),
+    payments: sqlite.prepare(`
+      SELECT id, user_id, provider, status, status_detail, mp_preference_id, mp_payment_id,
+        mp_init_point, mp_sandbox_init_point, amount, currency, raw_status, created_at, updated_at
+      FROM payments
+      ORDER BY created_at ASC
+    `).all().map(rowToPayment),
+    documents: sqlite.prepare(`
+      SELECT id, user_id, file_name, stored_name, page_count, warning, reindexed_at, created_at
+      FROM documents
+      ORDER BY created_at ASC
+    `).all().map(rowToDocument),
+    chunks: sqlite.prepare(`
+      SELECT id, doc_id, user_id, file_name, page, chunk_index, text, search_text, created_at
+      FROM chunks
+      ORDER BY created_at ASC, chunk_index ASC
+    `).all().map(rowToChunk)
+  };
 }
 
 async function writeDb(db) {
-  const tempPath = `${DB_PATH}.tmp`;
-  await fsp.writeFile(tempPath, JSON.stringify(db, null, 2), 'utf8');
-  await fsp.rename(tempPath, DB_PATH);
+  ensureSqlite();
+  const normalized = normalizeDb(db);
+  sqlite.exec('BEGIN IMMEDIATE');
+  try {
+    sqlite.exec(`
+      DELETE FROM chunks;
+      DELETE FROM documents;
+      DELETE FROM payments;
+      DELETE FROM sessions;
+      DELETE FROM users;
+    `);
+
+    const insertUser = sqlite.prepare(`
+      INSERT INTO users (
+        id, email, password_hash, salt, plan, usage_questions, usage_uploads,
+        mercado_pago_customer_id, premium_since, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertSession = sqlite.prepare(`
+      INSERT INTO sessions (token, user_id, expires_at, created_at)
+      VALUES (?, ?, ?, ?)
+    `);
+    const insertPayment = sqlite.prepare(`
+      INSERT INTO payments (
+        id, user_id, provider, status, status_detail, mp_preference_id, mp_payment_id,
+        mp_init_point, mp_sandbox_init_point, amount, currency, raw_status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertDocument = sqlite.prepare(`
+      INSERT INTO documents (
+        id, user_id, file_name, stored_name, page_count, warning, reindexed_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertChunk = sqlite.prepare(`
+      INSERT INTO chunks (
+        id, doc_id, user_id, file_name, page, chunk_index, text, search_text, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const user of normalized.users) {
+      insertUser.run(
+        user.id,
+        user.email,
+        user.passwordHash,
+        user.salt,
+        user.plan || 'free',
+        Number(user.usage?.questions || 0),
+        Number(user.usage?.uploads || 0),
+        user.mercadoPagoCustomerId || null,
+        user.premiumSince || null,
+        user.createdAt || new Date().toISOString()
+      );
+    }
+    for (const session of normalized.sessions) {
+      insertSession.run(session.token, session.userId, session.expiresAt, session.createdAt || new Date().toISOString());
+    }
+    for (const payment of normalized.payments) {
+      insertPayment.run(
+        payment.id,
+        payment.userId,
+        payment.provider || 'mercadopago',
+        payment.status || 'created',
+        payment.statusDetail || null,
+        payment.mpPreferenceId || null,
+        payment.mpPaymentId || null,
+        payment.mpInitPoint || null,
+        payment.mpSandboxInitPoint || null,
+        Number(payment.amount || 0),
+        payment.currency || null,
+        payment.rawStatus ? JSON.stringify(payment.rawStatus) : null,
+        payment.createdAt || new Date().toISOString(),
+        payment.updatedAt || payment.createdAt || new Date().toISOString()
+      );
+    }
+    for (const doc of normalized.documents) {
+      insertDocument.run(
+        doc.id,
+        doc.userId,
+        doc.fileName,
+        doc.storedName || null,
+        Number(doc.pageCount || 0),
+        doc.warning || null,
+        doc.reindexedAt || null,
+        doc.createdAt || new Date().toISOString()
+      );
+    }
+    for (const chunk of normalized.chunks) {
+      insertChunk.run(
+        chunk.id,
+        chunk.docId,
+        chunk.userId,
+        chunk.fileName,
+        Number(chunk.page || 0),
+        Number(chunk.chunkIndex || 0),
+        chunk.text || '',
+        chunk.searchText || searchable(`${chunk.fileName || ''} ${chunk.text || ''}`),
+        chunk.createdAt || new Date().toISOString()
+      );
+    }
+
+    sqlite.exec('COMMIT');
+  } catch (error) {
+    sqlite.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+function ensureSqlite() {
+  if (!sqlite) throw new Error('SQLite store has not been initialized.');
+}
+
+function migrateSqliteSchema() {
+  ensureSqlite();
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      plan TEXT NOT NULL DEFAULT 'free',
+      usage_questions INTEGER NOT NULL DEFAULT 0,
+      usage_uploads INTEGER NOT NULL DEFAULT 0,
+      mercado_pago_customer_id TEXT,
+      premium_since TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL,
+      status_detail TEXT,
+      mp_preference_id TEXT,
+      mp_payment_id TEXT,
+      mp_init_point TEXT,
+      mp_sandbox_init_point TEXT,
+      amount REAL NOT NULL DEFAULT 0,
+      currency TEXT,
+      raw_status TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      stored_name TEXT,
+      page_count INTEGER NOT NULL DEFAULT 0,
+      warning TEXT,
+      reindexed_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS chunks (
+      id TEXT PRIMARY KEY,
+      doc_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      page INTEGER NOT NULL DEFAULT 0,
+      chunk_index INTEGER NOT NULL DEFAULT 0,
+      text TEXT NOT NULL,
+      search_text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);
+    CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id);
+    CREATE INDEX IF NOT EXISTS idx_chunks_user_id ON chunks(user_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+    CREATE INDEX IF NOT EXISTS idx_payments_mp_payment_id ON payments(mp_payment_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_mp_preference_id ON payments(mp_preference_id);
+  `);
+}
+
+async function migrateLegacyJsonStore() {
+  ensureSqlite();
+  if (storeMeta('legacy_json_migrated') === '1') return;
+
+  if (!fs.existsSync(LEGACY_JSON_DB_PATH)) {
+    setStoreMeta('legacy_json_migrated', '1');
+    return;
+  }
+
+  if (!sqliteStoreIsEmpty()) {
+    setStoreMeta('legacy_json_migrated', '1');
+    return;
+  }
+
+  try {
+    const raw = await fsp.readFile(LEGACY_JSON_DB_PATH, 'utf8');
+    await writeDb(JSON.parse(raw));
+    setStoreMeta('legacy_json_migrated', '1');
+  } catch (error) {
+    console.error('Nao foi possivel migrar data/db.json para SQLite:', error);
+  }
+}
+
+function sqliteStoreIsEmpty() {
+  const tables = ['users', 'sessions', 'payments', 'documents', 'chunks'];
+  return tables.every((table) => sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count === 0);
+}
+
+function storeMeta(key) {
+  return sqlite.prepare('SELECT value FROM app_meta WHERE key = ?').get(key)?.value || null;
+}
+
+function setStoreMeta(key, value) {
+  sqlite.prepare(`
+    INSERT INTO app_meta (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
+}
+
+function normalizeDb(db) {
+  return {
+    users: Array.isArray(db?.users) ? db.users : [],
+    sessions: Array.isArray(db?.sessions) ? db.sessions : [],
+    payments: Array.isArray(db?.payments) ? db.payments : [],
+    documents: Array.isArray(db?.documents) ? db.documents : [],
+    chunks: Array.isArray(db?.chunks) ? db.chunks : []
+  };
+}
+
+function rowToUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.password_hash,
+    salt: row.salt,
+    plan: row.plan || 'free',
+    usage: {
+      questions: Number(row.usage_questions || 0),
+      uploads: Number(row.usage_uploads || 0)
+    },
+    mercadoPagoCustomerId: row.mercado_pago_customer_id || null,
+    premiumSince: row.premium_since || null,
+    createdAt: row.created_at
+  };
+}
+
+function rowToSession(row) {
+  return {
+    token: row.token,
+    userId: row.user_id,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at
+  };
+}
+
+function rowToPayment(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    status: row.status,
+    statusDetail: row.status_detail || null,
+    mpPreferenceId: row.mp_preference_id || null,
+    mpPaymentId: row.mp_payment_id || null,
+    mpInitPoint: row.mp_init_point || null,
+    mpSandboxInitPoint: row.mp_sandbox_init_point || null,
+    amount: Number(row.amount || 0),
+    currency: row.currency || null,
+    rawStatus: parseStoredJson(row.raw_status),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function rowToDocument(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    fileName: row.file_name,
+    storedName: row.stored_name || null,
+    pageCount: Number(row.page_count || 0),
+    warning: row.warning || null,
+    reindexedAt: row.reindexed_at || null,
+    createdAt: row.created_at
+  };
+}
+
+function rowToChunk(row) {
+  return {
+    id: row.id,
+    docId: row.doc_id,
+    userId: row.user_id,
+    fileName: row.file_name,
+    page: Number(row.page || 0),
+    chunkIndex: Number(row.chunk_index || 0),
+    text: row.text,
+    searchText: row.search_text,
+    createdAt: row.created_at
+  };
+}
+
+function parseStoredJson(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 async function reindexStoredDocumentsIfNeeded() {

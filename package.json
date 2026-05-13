@@ -5,10 +5,10 @@
   "description": "ContractFlow demo with login, PDF upload, citation search, LLM answer generation and Mercado Pago checkout.",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --disable-warning=ExperimentalWarning server.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   }
 }

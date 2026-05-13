@@ -1,9 +1,10 @@
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3140
+ENV NODE_OPTIONS=--disable-warning=ExperimentalWarning
 
 COPY --chown=node:node package.json ./
 COPY --chown=node:node server.js contractflow.html ./

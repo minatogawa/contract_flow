@@ -1,6 +1,8 @@
 .git
 .env
 data/db.json
+data/app.db
+data/app.db-*
 data/uploads/
 node_modules/
 *.log

@@ -4,6 +4,8 @@ Demo local com login, upload de PDFs, busca de trechos por pagina, resposta por 
 
 ## Rodar
 
+Requer Node.js 24 ou superior.
+
 ```powershell
 npm start
 ```
@@ -27,6 +29,10 @@ Por padrao o container expoe:
 - Demo: http://localhost:3140/app
 
 Para trocar a porta publicada no host, ajuste `HOST_PORT` no `.env`. Os dados locais do app ficam persistidos no volume Docker `contractflow-data`.
+
+## Persistencia
+
+Os metadados ficam em SQLite em `data/app.db`, e os PDFs continuam em `data/uploads/`. Ao iniciar, se `data/app.db` ainda estiver vazio e existir um `data/db.json` antigo, o app importa esse JSON automaticamente uma vez.
 
 ## Configurar IA
 
