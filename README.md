@@ -34,6 +34,24 @@ Para trocar a porta publicada no host, ajuste `HOST_PORT` no `.env`. Os dados lo
 
 Os metadados ficam em SQLite em `data/app.db`, e os PDFs continuam em `data/uploads/`. Ao iniciar, se `data/app.db` ainda estiver vazio e existir um `data/db.json` antigo, o app importa esse JSON automaticamente uma vez.
 
+## Deploy no Fly.io
+
+O app usa SQLite, entao precisa de volume persistente em `/app/data` e deve comecar com uma unica Machine.
+
+Instale e autentique o `flyctl`, depois:
+
+```powershell
+fly launch --copy-config --no-deploy
+fly volumes create contractflow_data --size 1 --region gru
+fly secrets set APP_URL=https://contract-flow.fly.dev SESSION_SECRET=troque-por-uma-string-grande
+fly secrets set LLM_PROVIDER=gemini GEMINI_API_KEY=sua_key GEMINI_MODEL=gemini-2.5-flash
+fly secrets set MP_ACCESS_TOKEN=TEST-... MP_PUBLIC_KEY=TEST-... MP_CHECKOUT_MODE=sandbox
+fly deploy
+fly status
+```
+
+Se voce escolher outro nome para o app, ajuste `app` em `fly.toml` e use esse mesmo nome em `APP_URL`.
+
 ## Configurar IA
 
 Edite `.env`:
