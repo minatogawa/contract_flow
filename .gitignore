@@ -1,0 +1,8 @@
+.env
+data/db.json
+data/uploads/
+node_modules/
+*.log
+ChatGPT Image*.png
+.DS_Store
+Thumbs.db

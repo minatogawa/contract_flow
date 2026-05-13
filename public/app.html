@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContractFlow</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#1a1611">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/app.css?v=20260513-7">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <main id="authView" class="auth-view">
+    <section class="auth-panel">
+      <a class="brand-link" href="/">
+        <img class="brand-mark" src="/logo-mark.png" alt="" width="40" height="41">
+        <span>ContractFlow</span>
+      </a>
+
+      <div class="auth-copy">
+        <p class="eyebrow">Demo privada &middot; MMXXVI</p>
+        <h1>Cada citacao, <em>na pagina exata.</em></h1>
+      </div>
+
+      <form id="authForm" class="auth-form">
+        <label>
+          Email
+          <input id="emailInput" type="email" autocomplete="email" required>
+        </label>
+        <label>
+          Senha
+          <input id="passwordInput" type="password" autocomplete="current-password" minlength="6" required>
+        </label>
+        <button id="authSubmit" type="submit">Entrar</button>
+      </form>
+
+      <button id="authMode" class="text-button" type="button">Criar conta de teste</button>
+    </section>
+  </main>
+
+  <main id="appView" class="app-view" hidden>
+    <header class="topbar">
+      <a class="brand-link compact" href="/">
+        <img class="brand-mark" src="/logo-mark.png" alt="" width="40" height="41">
+        <span>ContractFlow</span>
+      </a>
+
+      <div class="account-strip">
+        <span id="usagePill" class="usage-pill"></span>
+        <span id="planPill" class="plan-pill">Free</span>
+        <button id="premiumButton" class="premium-button" type="button">Premium</button>
+        <button id="logoutButton" class="ghost-button" type="button">Sair</button>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div class="left-rail">
+        <section class="upload-panel">
+          <div id="dropzone" class="dropzone" tabindex="0">
+            <input id="fileInput" type="file" accept="application/pdf,.pdf" multiple>
+            <div class="drop-icon">PDF</div>
+            <div>
+              <strong>Soltar arquivo aqui</strong>
+              <span>PDF pesquisavel &middot; ate 16 MB por arquivo.</span>
+            </div>
+          </div>
+          <div id="uploadStatus" class="status-line"></div>
+        </section>
+
+        <section class="documents-panel">
+          <div class="panel-header">
+            <h2>Documentos</h2>
+            <span id="documentCount">0</span>
+          </div>
+          <div id="documentsList" class="documents-list"></div>
+        </section>
+      </div>
+
+      <section class="center-panel">
+        <div class="question-panel">
+          <div class="panel-header">
+            <h2>Pergunta</h2>
+            <span id="providerLabel">mock</span>
+          </div>
+          <form id="askForm" class="ask-form">
+            <textarea id="questionInput" rows="4" placeholder="Ex: Ha contradicao entre o contrato principal e o anexo sobre prazo de entrega?"></textarea>
+            <button id="askButton" type="submit">Buscar trecho</button>
+          </form>
+        </div>
+
+        <section class="answer-panel">
+          <div class="panel-header">
+            <h2>Resposta</h2>
+            <span id="answerMeta">Aguardando pergunta</span>
+          </div>
+          <div id="answerBox" class="answer-box empty">
+            Suba um PDF e pergunte sobre clausulas, prazos, multas, pagamentos ou anexos.
+          </div>
+        </section>
+      </section>
+
+      <aside class="citation-panel">
+        <div class="panel-header">
+          <h2>Citacao</h2>
+          <span id="citationScore">&mdash;</span>
+        </div>
+        <div id="citationBox" class="citation-box empty">
+          O trecho mais provavel aparece aqui com documento e pagina.
+        </div>
+        <div id="citationList" class="citation-list"></div>
+      </aside>
+    </section>
+  </main>
+
+  <div id="paywall" class="paywall" hidden>
+    <div class="paywall-panel">
+      <div class="panel-header">
+        <h2>Premium</h2>
+        <button id="closePaywall" class="ghost-button" type="button">Fechar</button>
+      </div>
+      <p id="paywallMessage">Limite gratis atingido.</p>
+      <button id="checkoutButton" class="premium-button wide" type="button">Ativar premium</button>
+    </div>
+  </div>
+
+  <script src="/app.js?v=20260513-7" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "contractflow-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ContractFlow demo with login, PDF upload, citation search, LLM answer generation and Mercado Pago checkout.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

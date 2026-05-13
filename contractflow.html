@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ContractFlow — Inteligencia para administración de contratos legales</title>
+<meta name="description" content="RAG con citación exacta para PMEs chilenas de construcción y servicios mineros. Encuentra cualquier cláusula en segundos.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='5' y='3' width='22' height='26' rx='1' fill='none' stroke='%23d4814a' stroke-width='2'/%3E%3Cline x1='10' y1='10' x2='20' y2='10' stroke='%23e8e4dd' stroke-width='1.5'/%3E%3Cline x1='10' y1='15' x2='24' y2='15' stroke='%23e8e4dd' stroke-width='1.5'/%3E%3Cline x1='10' y1='20' x2='17' y2='20' stroke='%23e8e4dd' stroke-width='1.5'/%3E%3Ccircle cx='23' cy='23' r='4' fill='%23d4814a' opacity='0.5'/%3E%3C/svg%3E">
+
+<script src="https://cdn.tailwindcss.com"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --bg-2: #0e0e11;
+    --surface: #14141a;
+    --surface-2: #1a1a21;
+    --border: #22222a;
+    --border-2: #2e2e36;
+    --text: #ece8df;
+    --text-dim: #8a857c;
+    --text-muted: #5a564f;
+    --copper: #d4814a;
+    --copper-light: #e8a06b;
+    --copper-glow: rgba(212, 129, 74, 0.18);
+    --highlight: rgba(212, 129, 74, 0.32);
+    --paper: #f3ecdd;
+    --paper-2: #e8e0cc;
+    --paper-ink: #2a2519;
+  }
+
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Geist', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-feature-settings: 'ss01';
+    line-height: 1.5;
+  }
+
+  .font-serif { font-family: 'Fraunces', Georgia, serif; font-feature-settings: 'ss01'; font-variation-settings: 'opsz' 80, 'SOFT' 0; }
+  .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  /* Grain texture overlay */
+  .grain::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.035;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' seed='5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Background atmospherics */
+  .glow-warm {
+    position: absolute;
+    width: 900px;
+    height: 900px;
+    background: radial-gradient(circle, rgba(212, 129, 74, 0.10) 0%, rgba(212, 129, 74, 0.04) 25%, transparent 60%);
+    filter: blur(40px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .line-grid-faint {
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.018) 1px, transparent 1px);
+    background-size: 88px 100%;
+  }
+
+  .blueprint-grid {
+    background-image:
+      linear-gradient(to right, rgba(212, 129, 74, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(212, 129, 74, 0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* Citation pill */
+  .citation {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    background: var(--copper-glow);
+    color: var(--copper-light);
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    border: 1px solid rgba(212, 129, 74, 0.28);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 1.5;
+  }
+  .citation:hover {
+    background: rgba(212, 129, 74, 0.28);
+    border-color: rgba(212, 129, 74, 0.55);
+    transform: translateY(-1px);
+  }
+
+  /* Highlighted passage */
+  .hl-passage {
+    background: linear-gradient(to bottom, transparent 55%, rgba(212, 129, 74, 0.42) 55%, rgba(212, 129, 74, 0.42) 92%, transparent 92%);
+    padding: 0 2px;
+  }
+
+  .hl-paper {
+    background: linear-gradient(to bottom, transparent 50%, rgba(212, 129, 74, 0.35) 50%);
+    padding: 0 2px;
+  }
+
+  /* Section reveal */
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.9s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .reveal-d1 { transition-delay: 0.08s; }
+  .reveal-d2 { transition-delay: 0.16s; }
+  .reveal-d3 { transition-delay: 0.24s; }
+  .reveal-d4 { transition-delay: 0.32s; }
+  .reveal-d5 { transition-delay: 0.40s; }
+  .reveal-d6 { transition-delay: 0.48s; }
+
+  /* Hero headline reveal staggered */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .hero-line { opacity: 0; animation: fadeUp 1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+
+  /* Chat demo */
+  .demo-msg { opacity: 0; transform: translateY(8px); }
+
+  @keyframes slideIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .demo-active .demo-msg-1 { animation: slideIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s forwards; }
+  .demo-active .demo-typing { animation: slideIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) 1.1s forwards; opacity: 0; }
+  .demo-active .demo-typing-fade { animation: typingOut 0.4s ease 2.4s forwards; }
+  .demo-active .demo-msg-2 { animation: slideIn 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 2.6s forwards; }
+  .demo-active .demo-msg-3 { animation: slideIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) 4.5s forwards; }
+  .demo-active .demo-doc { animation: slideIn 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 3.0s forwards; opacity: 0; }
+  .demo-active .demo-hl-anim { animation: highlightSweep 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) 4.0s forwards; background-size: 0% 50%; background-position: 0 100%; background-repeat: no-repeat; background-image: linear-gradient(to right, rgba(212, 129, 74, 0.42), rgba(212, 129, 74, 0.42)); padding: 0 2px; }
+
+  @keyframes highlightSweep {
+    to { background-size: 100% 50%; }
+  }
+
+  @keyframes typingOut {
+    to { opacity: 0; transform: translateY(-8px); height: 0; }
+  }
+
+  /* Typing dots */
+  .typing-dots { display: inline-flex; gap: 4px; align-items: center; }
+  .typing-dots span {
+    width: 5px; height: 5px;
+    background: var(--copper);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: 0.16s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.32s; }
+
+  @keyframes bounce {
+    0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); }
+    40% { opacity: 1; transform: scale(1); }
+  }
+
+  /* Cursor blink */
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+  .blink { animation: blink 1.1s step-end infinite; }
+
+  /* Marquee */
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .marquee { animation: marquee 50s linear infinite; }
+
+  /* Feature card hover */
+  .feat-card {
+    transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    background: var(--bg);
+    position: relative;
+  }
+  .feat-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 20% 0%, rgba(212, 129, 74, 0.06) 0%, transparent 50%);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+  }
+  .feat-card:hover::after { opacity: 1; }
+  .feat-card:hover .feat-icon { color: var(--copper-light); transform: translateY(-2px); }
+  .feat-icon { transition: all 0.3s ease; color: var(--copper); }
+
+  /* Buttons */
+  .btn-primary {
+    background: var(--text);
+    color: var(--bg);
+    transition: all 0.2s ease;
+  }
+  .btn-primary:hover {
+    background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.06);
+  }
+
+  .btn-ghost {
+    border: 1px solid var(--border-2);
+    transition: all 0.2s ease;
+  }
+  .btn-ghost:hover {
+    border-color: var(--copper);
+    color: var(--copper-light);
+  }
+
+  /* Document pane */
+  .doc-pane {
+    background: var(--paper);
+    color: var(--paper-ink);
+    background-image:
+      repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(42, 37, 25, 0.04) 27px, rgba(42, 37, 25, 0.04) 28px);
+  }
+
+  /* Section rule */
+  .section-rule {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--border-2) 15%, var(--border-2) 85%, transparent);
+  }
+
+  /* Form */
+  input:focus { outline: none; }
+  ::selection { background: var(--copper); color: var(--bg); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--copper); }
+
+  /* Misc utility */
+  .no-italic-em em { font-style: normal; }
+  .strike-through {
+    position: relative;
+    display: inline-block;
+  }
+  .strike-through::after {
+    content: '';
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    top: 55%;
+    height: 1px;
+    background: var(--copper);
+    transform: rotate(-2deg);
+  }
+
+  /* Vertical text */
+  .vertical-rl { writing-mode: vertical-rl; text-orientation: mixed; }
+
+  /* Quote mark */
+  .quote-mark {
+    font-family: 'Fraunces', serif;
+    font-size: 5rem;
+    line-height: 0;
+    color: var(--copper);
+    opacity: 0.4;
+    position: relative;
+    top: 0.5em;
+    margin-right: 0.1em;
+  }
+
+  /* Numbered marker */
+  .num-marker {
+    font-family: 'Fraunces', serif;
+    font-feature-settings: 'lnum';
+    font-variation-settings: 'opsz' 144;
+  }
+
+  /* Decorative corner crosshair */
+  .corner-mark::before {
+    content: '+';
+    position: absolute;
+    top: -6px; left: -6px;
+    color: var(--copper);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    opacity: 0.6;
+  }
+  .corner-mark::after {
+    content: '+';
+    position: absolute;
+    bottom: -6px; right: -6px;
+    color: var(--copper);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    opacity: 0.6;
+  }
+</style>
+</head>
+
+<body class="grain antialiased">
+
+<!-- ───────────────── NAV ───────────────── -->
+<header class="border-b border-[color:var(--border)] backdrop-blur-md bg-[color:var(--bg)]/85 sticky top-0 z-50">
+  <div class="max-w-[1280px] mx-auto px-6 lg:px-10 h-[68px] flex items-center justify-between">
+    <a href="#" class="flex items-center gap-3 group">
+      <svg viewBox="0 0 32 32" class="w-7 h-7">
+        <rect x="5" y="3" width="22" height="26" rx="1" fill="none" stroke="var(--copper)" stroke-width="1.6"/>
+        <line x1="10" y1="10" x2="20" y2="10" stroke="var(--text)" stroke-width="1.4"/>
+        <line x1="10" y1="15" x2="24" y2="15" stroke="var(--text)" stroke-width="1.4"/>
+        <line x1="10" y1="20" x2="17" y2="20" stroke="var(--text)" stroke-width="1.4"/>
+        <circle cx="23" cy="23" r="3.5" fill="var(--copper)" opacity="0.5"/>
+      </svg>
+      <span class="font-serif text-lg italic tracking-tight">ContractFlow</span>
+    </a>
+    <nav class="hidden md:flex items-center gap-8 text-sm text-[color:var(--text-dim)]">
+      <a href="#problema" class="hover:text-[color:var(--text)] transition">Problema</a>
+      <a href="#demo" class="hover:text-[color:var(--text)] transition">Demo</a>
+      <a href="#capacidades" class="hover:text-[color:var(--text)] transition">Capacidades</a>
+      <a href="#perfiles" class="hover:text-[color:var(--text)] transition">Para quién</a>
+    </nav>
+    <div class="flex items-center gap-3">
+      <span class="hidden sm:inline-block font-mono text-[10px] tracking-[0.18em] text-[color:var(--text-muted)] border border-[color:var(--border)] px-2.5 py-1 rounded-sm">
+        BETA · CL · 2026
+      </span>
+      <a href="/app" class="btn-primary px-4 py-2 rounded-sm text-sm font-medium">Solicitar acceso</a>
+    </div>
+  </div>
+</header>
+
+<!-- ───────────────── HERO ───────────────── -->
+<section class="relative overflow-hidden border-b border-[color:var(--border)]">
+  <div class="glow-warm" style="top: -300px; left: 50%; transform: translateX(-50%);"></div>
+  <div class="absolute inset-0 line-grid-faint opacity-60 pointer-events-none"></div>
+
+  <div class="relative max-w-[1280px] mx-auto px-6 lg:px-10 pt-28 pb-32">
+
+    <!-- Eyebrow -->
+    <div class="hero-line flex items-center gap-3 mb-12" style="animation-delay: 0s;">
+      <div class="w-10 h-px bg-[color:var(--copper)]"></div>
+      <span class="font-mono text-[11px] tracking-[0.22em] uppercase text-[color:var(--copper-light)]">RAG · Contratos · Construcción y Minería</span>
+    </div>
+
+    <!-- Headline -->
+    <h1 class="font-serif text-[clamp(3rem,9vw,7.5rem)] leading-[0.94] tracking-[-0.025em] font-light max-w-[1100px]">
+      <span class="hero-line block" style="animation-delay: 0.15s;">Encuentra cualquier</span>
+      <span class="hero-line block" style="animation-delay: 0.30s;"><em class="italic font-normal text-[color:var(--copper-light)]" style="font-variation-settings: 'opsz' 144, 'SOFT' 50;">cláusula</em> en segundos.</span>
+      <span class="hero-line block text-[color:var(--text-dim)]" style="animation-delay: 0.45s;">No en horas.</span>
+    </h1>
+
+    <!-- Sub -->
+    <p class="hero-line text-lg md:text-xl text-[color:var(--text-dim)] max-w-[640px] leading-[1.55] mt-10" style="animation-delay: 0.60s;">
+      Inteligencia artificial entrenada para contratos de construcción y servicios mineros chilenos.
+      Citación exacta hasta el párrafo. Detección de contradicciones entre el contrato principal y sus anexos.
+      <span class="text-[color:var(--text)] font-medium">Sin alucinaciones.</span>
+    </p>
+
+    <!-- CTA -->
+    <div class="hero-line flex flex-wrap gap-3 mt-12" style="animation-delay: 0.75s;">
+      <a href="/app" class="btn-primary group px-6 py-3.5 rounded-sm font-medium flex items-center gap-2 text-sm">
+        Probar con tu contrato
+        <span class="font-mono group-hover:translate-x-1 transition">→</span>
+      </a>
+      <a href="#demo" class="btn-ghost px-6 py-3.5 rounded-sm font-medium text-sm flex items-center gap-2">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6.2" stroke="currentColor" stroke-width="1"/><path d="M5.5 4.5L9.5 7L5.5 9.5V4.5Z" fill="currentColor"/></svg>
+        Ver demo en vivo
+      </a>
+    </div>
+
+    <!-- Stats grid -->
+    <div class="hero-line grid grid-cols-2 md:grid-cols-4 gap-px bg-[color:var(--border)] border border-[color:var(--border)] mt-20" style="animation-delay: 0.95s;">
+      <div class="bg-[color:var(--bg)] p-6">
+        <div class="font-serif text-[2.5rem] leading-none">700<span class="text-[color:var(--copper)]">+</span></div>
+        <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] mt-3">páginas / contrato</div>
+      </div>
+      <div class="bg-[color:var(--bg)] p-6">
+        <div class="font-serif text-[2.5rem] leading-none">×&thinsp;n</div>
+        <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] mt-3">anexos cruzados</div>
+      </div>
+      <div class="bg-[color:var(--bg)] p-6">
+        <div class="font-serif text-[2.5rem] leading-none">2.3<span class="text-[color:var(--copper)]">s</span></div>
+        <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] mt-3">tiempo de respuesta</div>
+      </div>
+      <div class="bg-[color:var(--bg)] p-6">
+        <div class="font-serif text-[2.5rem] leading-none">100<span class="text-[color:var(--copper)]">%</span></div>
+        <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] mt-3">citas verificables</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── PROBLEMA ───────────────── -->
+<section id="problema" class="border-b border-[color:var(--border)] py-32 relative">
+  <div class="max-w-[1280px] mx-auto px-6 lg:px-10">
+    <div class="grid lg:grid-cols-12 gap-12">
+
+      <div class="lg:col-span-5 reveal">
+        <div class="font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--copper-light)] mb-6">
+          §01 · El problema
+        </div>
+        <h2 class="font-serif text-[clamp(2.5rem,5vw,4.5rem)] leading-[1.02] tracking-[-0.02em] font-light">
+          Tu contrato no son <em class="italic text-[color:var(--copper-light)]">700 páginas</em>.
+          <span class="block mt-2">Son cientos de documentos disfrazados de uno.</span>
+        </h2>
+      </div>
+
+      <div class="lg:col-span-6 lg:col-start-7 space-y-10">
+
+        <p class="text-lg text-[color:var(--text-dim)] leading-[1.6] reveal reveal-d1">
+          Un contrato típico con <span class="text-[color:var(--text)]">Antofagasta Minerals</span>, <span class="text-[color:var(--text)]">Codelco</span> o <span class="text-[color:var(--text)]">Los Pelambres</span> llega con bases técnicas, bases metodológicas, términos comerciales, exclusiones, inclusiones y un orden de prelación. Cuando aparece una controversia, encontrar la cláusula correcta es una caza al tesoro a contrarreloj.
+        </p>
+
+        <!-- Anatomy of contract -->
+        <div class="border border-[color:var(--border)] p-6 font-mono text-[13px] reveal reveal-d2 bg-[color:var(--bg-2)]">
+          <div class="text-[color:var(--text-muted)] text-[10px] uppercase tracking-[0.2em] mb-5">
+            Anatomía típica · obra de servicios mineros
+          </div>
+          <div class="space-y-2.5">
+            <div class="flex items-baseline justify-between border-b border-dashed border-[color:var(--border-2)] pb-2.5">
+              <span class="text-[color:var(--text)]">Contrato principal</span>
+              <span class="text-[color:var(--text-muted)] text-xs">pp. 1–87</span>
+            </div>
+            <div class="flex items-baseline justify-between border-b border-dashed border-[color:var(--border-2)] pb-2.5 pl-5">
+              <span class="text-[color:var(--text-dim)]">↳ Anexo A · Bases técnicas</span>
+              <span class="text-[color:var(--text-muted)] text-xs">pp. 88–214</span>
+            </div>
+            <div class="flex items-baseline justify-between border-b border-dashed border-[color:var(--border-2)] pb-2.5 pl-5">
+              <span class="text-[color:var(--text-dim)]">↳ Anexo B · Bases metodológicas</span>
+              <span class="text-[color:var(--text-muted)] text-xs">pp. 215–340</span>
+            </div>
+            <div class="flex items-baseline justify-between border-b border-dashed border-[color:var(--border-2)] pb-2.5 pl-5">
+              <span class="text-[color:var(--text-dim)]">↳ Anexo C · Términos comerciales</span>
+              <span class="text-[color:var(--text-muted)] text-xs">pp. 341–489</span>
+            </div>
+            <div class="flex items-baseline justify-between border-b border-dashed border-[color:var(--border-2)] pb-2.5 pl-5">
+              <span class="text-[color:var(--text-dim)]">↳ Anexo D · Exclusiones e inclusiones</span>
+              <span class="text-[color:var(--text-muted)] text-xs">pp. 490–612</span>
+            </div>
+            <div class="flex items-baseline justify-between pl-5">
+              <span class="text-[color:var(--text-dim)]">↳ Orden de prelación</span>
+              <span class="text-[color:var(--text-muted)] text-xs">pp. 613–702</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3 pain points -->
+        <div class="grid sm:grid-cols-3 gap-8 pt-2">
+          <div class="reveal reveal-d3">
+            <div class="font-serif text-[1.7rem] leading-tight text-[color:var(--copper-light)] mb-3 italic">
+              Versión&thinsp;2 vs Versión&thinsp;4
+            </div>
+            <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+              El cliente firmó la última revisión hace tres semanas. Tu equipo sigue trabajando con la anterior. Nadie sabe.
+            </p>
+          </div>
+          <div class="reveal reveal-d4">
+            <div class="font-serif text-[1.7rem] leading-tight text-[color:var(--copper-light)] mb-3 italic">
+              El correo perdido
+            </div>
+            <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+              El responsable se desvinculó. La versión oficial vivía en su Outlook. Y nadie más la encontró.
+            </p>
+          </div>
+          <div class="reveal reveal-d5">
+            <div class="font-serif text-[1.7rem] leading-tight text-[color:var(--copper-light)] mb-3 italic">
+              Drive&thinsp;+&thinsp;carpeta física
+            </div>
+            <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+              Mitad en la nube, mitad en una carpeta de oficina. Cuando llega la auditoría, son dos sistemas que no se hablan.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── DEMO ───────────────── -->
+<section id="demo" class="border-b border-[color:var(--border)] py-32 relative overflow-hidden">
+  <div class="glow-warm" style="bottom: -400px; right: -250px;"></div>
+  <div class="absolute inset-0 blueprint-grid opacity-30 pointer-events-none"></div>
+
+  <div class="max-w-[1280px] mx-auto px-6 lg:px-10 relative">
+    <div class="text-center mb-20 reveal">
+      <div class="font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--copper-light)] mb-6">
+        §02 · Demostración en vivo
+      </div>
+      <h2 class="font-serif text-[clamp(2.5rem,5.5vw,5rem)] leading-[1.02] tracking-[-0.02em] font-light max-w-[900px] mx-auto">
+        Pregunta como hablas. <em class="italic text-[color:var(--copper-light)]">Responde como un abogado.</em>
+      </h2>
+    </div>
+
+    <div class="demo-container reveal grid lg:grid-cols-5 gap-px bg-[color:var(--border)] border border-[color:var(--border)] rounded-sm overflow-hidden shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]">
+
+      <!-- Chat side -->
+      <div class="lg:col-span-3 bg-[color:var(--bg-2)] p-6 lg:p-8">
+
+        <!-- Chat header -->
+        <div class="flex items-center justify-between mb-7 pb-5 border-b border-[color:var(--border)]">
+          <div class="flex items-center gap-2.5">
+            <div class="w-2 h-2 rounded-full bg-[color:var(--copper)] animate-pulse"></div>
+            <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-[color:var(--text-dim)]">
+              ContractFlow · Asistente
+            </span>
+          </div>
+          <span class="font-mono text-[10px] text-[color:var(--text-muted)]">
+            MLP-2026-047 · v.4
+          </span>
+        </div>
+
+        <div class="space-y-7 min-h-[520px]">
+
+          <!-- User message -->
+          <div class="demo-msg demo-msg-1 flex gap-4">
+            <div class="w-8 h-8 rounded-full bg-[color:var(--surface)] border border-[color:var(--border)] flex items-center justify-center flex-shrink-0 font-mono text-[10px] text-[color:var(--text-dim)]">
+              TÚ
+            </div>
+            <div class="flex-1 pt-1">
+              <div class="text-[15px] text-[color:var(--text)] leading-[1.6]">
+                ¿Hay contradicción entre la <span class="font-mono text-[13.5px] text-[color:var(--copper-light)]">cláusula 14</span> del contrato principal y el anexo de bases técnicas sobre los plazos de entrega?
+              </div>
+            </div>
+          </div>
+
+          <!-- Typing indicator -->
+          <div class="demo-msg demo-typing demo-typing-fade flex gap-4">
+            <div class="w-8 h-8 rounded-sm bg-[color:var(--copper)]/10 border border-[color:var(--copper)]/30 flex items-center justify-center flex-shrink-0">
+              <svg viewBox="0 0 16 16" class="w-3.5 h-3.5 text-[color:var(--copper-light)]" fill="none" stroke="currentColor" stroke-width="1.3">
+                <rect x="3" y="2" width="10" height="12" rx="0.5"/>
+                <line x1="5" y1="6" x2="11" y2="6"/>
+                <line x1="5" y1="9" x2="9" y2="9"/>
+              </svg>
+            </div>
+            <div class="flex-1 pt-2">
+              <div class="typing-dots"><span></span><span></span><span></span></div>
+            </div>
+          </div>
+
+          <!-- AI response -->
+          <div class="demo-msg demo-msg-2 flex gap-4">
+            <div class="w-8 h-8 rounded-sm bg-[color:var(--copper)]/10 border border-[color:var(--copper)]/30 flex items-center justify-center flex-shrink-0">
+              <svg viewBox="0 0 16 16" class="w-3.5 h-3.5 text-[color:var(--copper-light)]" fill="none" stroke="currentColor" stroke-width="1.3">
+                <rect x="3" y="2" width="10" height="12" rx="0.5"/>
+                <line x1="5" y1="6" x2="11" y2="6"/>
+                <line x1="5" y1="9" x2="9" y2="9"/>
+              </svg>
+            </div>
+            <div class="flex-1 space-y-4 pt-1">
+
+              <div class="text-[15px] text-[color:var(--text)] leading-[1.6]">
+                <span class="text-[color:var(--copper-light)] font-medium">Sí, detecté una contradicción material.</span>
+                El contrato principal y el anexo técnico discrepan en el plazo de la fase de movimiento de tierra:
+              </div>
+
+              <!-- Contradiction breakdown -->
+              <div class="border-l-2 border-[color:var(--copper)] pl-5 py-1 space-y-5 bg-[color:var(--copper)]/[0.03]">
+                <div>
+                  <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] mb-2">
+                    ▢ Contrato principal
+                  </div>
+                  <div class="text-[14px] text-[color:var(--text-dim)] leading-[1.6] font-serif italic">
+                    "…el contratista deberá completar la <span class="hl-passage text-[color:var(--text)] not-italic font-sans">fase preparatoria en un plazo máximo de 90 días corridos</span> contados desde la firma…"
+                  </div>
+                  <div class="mt-3 flex gap-1.5 flex-wrap">
+                    <span class="citation">§14.3</span>
+                    <span class="citation">p.&nbsp;47</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] mb-2">
+                    ▢ Anexo&nbsp;A · Bases técnicas
+                  </div>
+                  <div class="text-[14px] text-[color:var(--text-dim)] leading-[1.6] font-serif italic">
+                    "…el movimiento de tierra y obras preliminares <span class="hl-passage text-[color:var(--text)] not-italic font-sans">requieren 120 días hábiles</span> según las condiciones geotécnicas del sector…"
+                  </div>
+                  <div class="mt-3 flex gap-1.5 flex-wrap">
+                    <span class="citation">A·§7.2</span>
+                    <span class="citation">p.&nbsp;156</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="text-[15px] text-[color:var(--text)] leading-[1.6]">
+                Por <strong class="text-[color:var(--copper-light)] font-medium">orden de prelación</strong> <span class="font-mono text-[12px] text-[color:var(--text-dim)]">(§2.1, p.&nbsp;8)</span>, el contrato principal prima sobre los anexos. Sin embargo, los plazos del anexo son técnicamente irrealizables sin renegociación.
+                <span class="text-[color:var(--text-dim)] block mt-2">Recomiendo revisar antes de la próxima reunión con el mandante.</span>
+              </div>
+
+              <div class="flex gap-2 pt-1">
+                <button class="text-[11px] font-mono uppercase tracking-wider text-[color:var(--text-muted)] hover:text-[color:var(--copper-light)] border border-[color:var(--border-2)] hover:border-[color:var(--copper)]/50 px-3 py-1.5 rounded-sm transition flex items-center gap-1.5">
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 2h7v7H2z"/><path d="M5.5 4v3M4 5.5h3"/></svg>
+                  Exportar
+                </button>
+                <button class="text-[11px] font-mono uppercase tracking-wider text-[color:var(--text-muted)] hover:text-[color:var(--copper-light)] border border-[color:var(--border-2)] hover:border-[color:var(--copper)]/50 px-3 py-1.5 rounded-sm transition">
+                  Profundizar →
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Follow-up user typing -->
+          <div class="demo-msg demo-msg-3 flex gap-4">
+            <div class="w-8 h-8 rounded-full bg-[color:var(--surface)] border border-[color:var(--border)] flex items-center justify-center flex-shrink-0 font-mono text-[10px] text-[color:var(--text-dim)]">
+              TÚ
+            </div>
+            <div class="flex-1 pt-2 text-[14px] text-[color:var(--text-muted)] italic flex items-center gap-2">
+              <span>Escribiendo</span>
+              <span class="typing-dots"><span></span><span></span><span></span></span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Input bar -->
+        <div class="mt-7 pt-5 border-t border-[color:var(--border)] flex items-center gap-3 px-4 py-3 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-sm">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" class="text-[color:var(--text-muted)] flex-shrink-0">
+            <circle cx="6" cy="6" r="4.5"/><line x1="9.5" y1="9.5" x2="13" y2="13"/>
+          </svg>
+          <span class="text-[13px] text-[color:var(--text-muted)] flex-1">Pregunta sobre cualquier contrato o anexo…</span>
+          <span class="font-mono text-[10px] text-[color:var(--text-muted)] border border-[color:var(--border-2)] px-1.5 py-0.5 rounded-sm">⌘K</span>
+        </div>
+      </div>
+
+      <!-- Document pane -->
+      <div class="lg:col-span-2 doc-pane p-7 lg:p-9 relative min-h-[600px]">
+
+        <!-- Pane header -->
+        <div class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--paper-ink)]/55 mb-6 flex items-center justify-between border-b border-[color:var(--paper-ink)]/15 pb-3">
+          <span class="flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-[color:var(--copper)]"></span>
+            Pasaje fuente
+          </span>
+          <span>§14.3 · p.&nbsp;47</span>
+        </div>
+
+        <!-- Document content -->
+        <div class="demo-doc font-serif text-[14.5px] leading-[1.85] text-[color:var(--paper-ink)]">
+          <div class="text-[color:var(--paper-ink)]/35 mb-3 font-mono text-xs">[ … ]</div>
+          <p class="mb-4">
+            <span class="font-bold mr-1">14.2</span>
+            Las partes acuerdan que las fases de ejecución se desarrollarán según el cronograma anexo, sujeto a las condiciones de inicio establecidas en el portal SIGA del mandante.
+          </p>
+          <p class="mb-4">
+            <span class="font-bold mr-1">14.3</span>
+            El contratista deberá completar la <span class="demo-hl-anim">fase preparatoria en un plazo máximo de 90 días corridos</span> contados desde la firma de la carta de adjudicación, sin perjuicio de las extensiones previstas en el numeral&nbsp;19.
+          </p>
+          <p class="opacity-50">
+            <span class="font-bold mr-1">14.4</span>
+            El incumplimiento de los plazos podrá originar las multas establecidas en el Anexo&nbsp;C, sección&nbsp;3, salvo causa de fuerza mayor debidamente acreditada conforme a la legislación chilena vigente.
+          </p>
+          <div class="text-[color:var(--paper-ink)]/35 mt-4 font-mono text-xs">[ … ]</div>
+        </div>
+
+        <!-- Vertical marginalia -->
+        <div class="absolute top-12 right-4 vertical-rl font-mono text-[9px] uppercase tracking-[0.3em] text-[color:var(--paper-ink)]/30">
+          MLP-2026-047 · rev.4 · firma electrónica avanzada
+        </div>
+
+        <!-- Bottom folio -->
+        <div class="absolute bottom-5 left-7 right-7 flex items-center justify-between font-mono text-[10px] text-[color:var(--paper-ink)]/40">
+          <span>— 47 —</span>
+          <span>contrato.principal/§14</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-8 text-center text-sm text-[color:var(--text-muted)] font-mono reveal reveal-d2">
+      Cada respuesta enlaza a la página y párrafo exactos. <span class="text-[color:var(--copper-light)]">Sin excepciones.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── CAPACIDADES ───────────────── -->
+<section id="capacidades" class="border-b border-[color:var(--border)] py-32 relative">
+  <div class="max-w-[1280px] mx-auto px-6 lg:px-10">
+    <div class="mb-20 max-w-3xl reveal">
+      <div class="font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--copper-light)] mb-6">
+        §03 · Capacidades
+      </div>
+      <h2 class="font-serif text-[clamp(2.5rem,5.5vw,5rem)] leading-[1.02] tracking-[-0.02em] font-light">
+        Seis cosas que hace bien. <em class="italic text-[color:var(--text-dim)]">Y nada más.</em>
+      </h2>
+    </div>
+
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-px bg-[color:var(--border)] border border-[color:var(--border)]">
+
+      <!-- 1 -->
+      <div class="feat-card p-9 reveal reveal-d1">
+        <div class="flex items-start justify-between mb-8">
+          <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">F·01</span>
+          <svg class="feat-icon w-7 h-7" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.3">
+            <rect x="6" y="4" width="16" height="22" rx="0.5"/>
+            <line x1="10" y1="10" x2="20" y2="10"/>
+            <line x1="10" y1="14" x2="18" y2="14"/>
+            <line x1="10" y1="18" x2="14" y2="18"/>
+            <circle cx="22" cy="22" r="5" fill="rgba(212, 129, 74, 0.18)"/>
+            <path d="M19 22 l 2 2 l 4 -4" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <h3 class="font-serif text-[1.65rem] leading-tight mb-3">Citación exacta</h3>
+        <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+          Cada respuesta apunta a la página, cláusula y párrafo concretos. Pasaje resaltado, fuente abierta. Si no hay base, lo dice.
+        </p>
+      </div>
+
+      <!-- 2 -->
+      <div class="feat-card p-9 reveal reveal-d2">
+        <div class="flex items-start justify-between mb-8">
+          <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">F·02</span>
+          <svg class="feat-icon w-7 h-7" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.3">
+            <line x1="8" y1="6" x2="8" y2="26"/>
+            <line x1="24" y1="6" x2="24" y2="26"/>
+            <path d="M8 12 L 16 16 L 24 14"/>
+            <path d="M8 20 L 16 16 L 24 22"/>
+            <circle cx="16" cy="16" r="2.5" fill="currentColor"/>
+          </svg>
+        </div>
+        <h3 class="font-serif text-[1.65rem] leading-tight mb-3">Detección de contradicciones</h3>
+        <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+          Cruza el contrato principal con cada anexo. Identifica plazos, montos, alcances y multas que se contradicen — antes de que llegue la controversia.
+        </p>
+      </div>
+
+      <!-- 3 -->
+      <div class="feat-card p-9 reveal reveal-d3">
+        <div class="flex items-start justify-between mb-8">
+          <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">F·03</span>
+          <svg class="feat-icon w-7 h-7" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.3">
+            <circle cx="9" cy="9" r="3"/>
+            <circle cx="23" cy="9" r="3"/>
+            <circle cx="9" cy="23" r="3"/>
+            <circle cx="23" cy="23" r="3"/>
+            <line x1="12" y1="9" x2="20" y2="9"/>
+            <line x1="9" y1="12" x2="9" y2="20"/>
+            <line x1="23" y1="12" x2="23" y2="20"/>
+            <line x1="12" y1="23" x2="20" y2="23"/>
+          </svg>
+        </div>
+        <h3 class="font-serif text-[1.65rem] leading-tight mb-3">Integraciones del rubro</h3>
+        <p class="text-sm text-[color:var(--text-dim)] leading-relaxed mb-5">
+          Conecta donde ya trabajas. Sin migración forzada.
+        </p>
+        <div class="flex flex-wrap gap-1.5 font-mono text-[10px]">
+          <span class="px-2 py-1 border border-[color:var(--border-2)] rounded-sm text-[color:var(--text-dim)]">Aconex</span>
+          <span class="px-2 py-1 border border-[color:var(--border-2)] rounded-sm text-[color:var(--text-dim)]">SIGA</span>
+          <span class="px-2 py-1 border border-[color:var(--border-2)] rounded-sm text-[color:var(--text-dim)]">Ariba Sourcing</span>
+          <span class="px-2 py-1 border border-[color:var(--border-2)] rounded-sm text-[color:var(--text-dim)]">Drive</span>
+          <span class="px-2 py-1 border border-[color:var(--border-2)] rounded-sm text-[color:var(--text-dim)]">SharePoint</span>
+        </div>
+      </div>
+
+      <!-- 4 -->
+      <div class="feat-card p-9 reveal reveal-d4">
+        <div class="flex items-start justify-between mb-8">
+          <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">F·04</span>
+          <svg class="feat-icon w-7 h-7" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.3">
+            <rect x="5" y="6" width="22" height="20" rx="0.5"/>
+            <line x1="9" y1="11" x2="23" y2="11"/>
+            <line x1="9" y1="15" x2="23" y2="15"/>
+            <line x1="9" y1="19" x2="23" y2="19"/>
+            <circle cx="9" cy="11" r="1.4" fill="currentColor"/>
+            <circle cx="9" cy="15" r="1.4" fill="currentColor"/>
+            <circle cx="9" cy="19" r="1.4" fill="currentColor"/>
+          </svg>
+        </div>
+        <h3 class="font-serif text-[1.65rem] leading-tight mb-3">Trazabilidad ISO·9001</h3>
+        <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+          Versionado por contrato, registro de quién consultó qué, exportación con sello de tiempo. Listo para auditorías y revisiones del mandante.
+        </p>
+      </div>
+
+      <!-- 5 -->
+      <div class="feat-card p-9 reveal reveal-d5">
+        <div class="flex items-start justify-between mb-8">
+          <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">F·05</span>
+          <svg class="feat-icon w-7 h-7" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.3">
+            <circle cx="14" cy="14" r="8"/>
+            <line x1="20" y1="20" x2="26" y2="26"/>
+            <text x="14" y="17" text-anchor="middle" font-family="Fraunces, serif" font-size="9" fill="currentColor" font-style="italic" stroke="none">¿?</text>
+          </svg>
+        </div>
+        <h3 class="font-serif text-[1.65rem] leading-tight mb-3">Lenguaje natural · Español</h3>
+        <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+          Pregunta como hablas: <em class="text-[color:var(--text)] font-serif">"¿Qué multa aplica si entregamos atrasados?"</em>. Sin sintaxis de búsqueda. En castellano técnico de obra.
+        </p>
+      </div>
+
+      <!-- 6 -->
+      <div class="feat-card p-9 reveal reveal-d6">
+        <div class="flex items-start justify-between mb-8">
+          <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">F·06</span>
+          <svg class="feat-icon w-7 h-7" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.3">
+            <rect x="6" y="6" width="8" height="8" rx="0.5"/>
+            <rect x="18" y="6" width="8" height="8" rx="0.5"/>
+            <rect x="6" y="18" width="8" height="8" rx="0.5"/>
+            <rect x="18" y="18" width="8" height="8" rx="0.5" fill="rgba(212, 129, 74, 0.2)"/>
+            <text x="10" y="11.5" text-anchor="middle" font-family="JetBrains Mono" font-size="5" fill="currentColor" stroke="none">v1</text>
+            <text x="22" y="11.5" text-anchor="middle" font-family="JetBrains Mono" font-size="5" fill="currentColor" stroke="none">v2</text>
+            <text x="10" y="23.5" text-anchor="middle" font-family="JetBrains Mono" font-size="5" fill="currentColor" stroke="none">v3</text>
+            <text x="22" y="23.5" text-anchor="middle" font-family="JetBrains Mono" font-size="5" fill="currentColor" stroke="none">v4</text>
+          </svg>
+        </div>
+        <h3 class="font-serif text-[1.65rem] leading-tight mb-3">Versiones que no se pierden</h3>
+        <p class="text-sm text-[color:var(--text-dim)] leading-relaxed">
+          Cuando un trabajador se desvincula, el contrato no se va con su correo. Versión vigente, histórico completo, diff entre revisiones.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── HOW IT WORKS ───────────────── -->
+<section class="border-b border-[color:var(--border)] py-32 relative">
+  <div class="max-w-[1280px] mx-auto px-6 lg:px-10">
+    <div class="mb-20 max-w-3xl reveal">
+      <div class="font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--copper-light)] mb-6">
+        §04 · Cómo funciona
+      </div>
+      <h2 class="font-serif text-[clamp(2.5rem,5.5vw,5rem)] leading-[1.02] tracking-[-0.02em] font-light">
+        Tres pasos. <em class="italic text-[color:var(--copper-light)]">Listos en una tarde.</em>
+      </h2>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-px bg-[color:var(--border)] border border-[color:var(--border)]">
+
+      <div class="bg-[color:var(--bg)] p-10 lg:p-12 relative overflow-hidden reveal reveal-d1">
+        <div class="num-marker text-[10rem] leading-none text-[color:var(--copper)] opacity-[0.10] absolute top-2 right-4 select-none italic">01</div>
+        <div class="relative">
+          <div class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)] mb-5">Paso uno</div>
+          <h3 class="font-serif text-[2rem] leading-tight mb-4">Sube tus contratos</h3>
+          <p class="text-sm text-[color:var(--text-dim)] leading-relaxed mb-6">
+            Arrastra el contrato principal y sus anexos. PDF, Word, lo que tengas. Conecta tu Drive, SharePoint o el portal del mandante. Procesamos e indexamos en minutos.
+          </p>
+          <div class="font-mono text-[11px] text-[color:var(--text-muted)] space-y-1.5 leading-relaxed">
+            <div class="flex gap-2"><span class="text-[color:var(--copper)]">+</span> Soporta&nbsp;700+&nbsp;páginas</div>
+            <div class="flex gap-2"><span class="text-[color:var(--copper)]">+</span> OCR para escaneados</div>
+            <div class="flex gap-2"><span class="text-[color:var(--copper)]">+</span> Cifrado en tránsito y reposo</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-[color:var(--bg)] p-10 lg:p-12 relative overflow-hidden reveal reveal-d2">
+        <div class="num-marker text-[10rem] leading-none text-[color:var(--copper)] opacity-[0.10] absolute top-2 right-4 select-none italic">02</div>
+        <div class="relative">
+          <div class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)] mb-5">Paso dos</div>
+          <h3 class="font-serif text-[2rem] leading-tight mb-4">Pregunta lo que necesites</h3>
+          <p class="text-sm text-[color:var(--text-dim)] leading-relaxed mb-6">
+            En lenguaje natural. Como si le preguntaras al abogado.
+          </p>
+          <div class="space-y-2 font-serif italic text-[15px] text-[color:var(--text)] leading-snug">
+            <div class="border-l-2 border-[color:var(--copper)]/30 pl-3">"¿Cuándo vence la garantía?"</div>
+            <div class="border-l-2 border-[color:var(--copper)]/30 pl-3">"¿Cuál es la multa por atraso?"</div>
+            <div class="border-l-2 border-[color:var(--copper)]/30 pl-3">"¿Hay alguna cláusula sobre alza de combustible?"</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-[color:var(--bg)] p-10 lg:p-12 relative overflow-hidden reveal reveal-d3">
+        <div class="num-marker text-[10rem] leading-none text-[color:var(--copper)] opacity-[0.10] absolute top-2 right-4 select-none italic">03</div>
+        <div class="relative">
+          <div class="font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--text-muted)] mb-5">Paso tres</div>
+          <h3 class="font-serif text-[2rem] leading-tight mb-4">Recibe la cita exacta</h3>
+          <p class="text-sm text-[color:var(--text-dim)] leading-relaxed mb-6">
+            Respuesta directa con la página, cláusula y párrafo. Cada cita abre el documento original con el pasaje resaltado.
+          </p>
+          <div class="border border-[color:var(--border-2)] rounded-sm p-3 bg-[color:var(--surface)] font-mono text-[11px] text-[color:var(--text-dim)]">
+            <div class="text-[color:var(--copper-light)] mb-1">→ respuesta_v1.json</div>
+            <div>{ "answer": "...",</div>
+            <div class="pl-3">"sources": [</div>
+            <div class="pl-6">{ "doc": "principal",</div>
+            <div class="pl-7">"§": "14.3", "p": 47 }</div>
+            <div class="pl-3">]</div>
+            <div>}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── PARA QUIÉN ───────────────── -->
+<section id="perfiles" class="border-b border-[color:var(--border)] py-32 relative overflow-hidden">
+  <div class="max-w-[1280px] mx-auto px-6 lg:px-10">
+    <div class="grid lg:grid-cols-12 gap-12 items-start">
+
+      <div class="lg:col-span-5 lg:sticky lg:top-32 reveal">
+        <div class="font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--copper-light)] mb-6">
+          §05 · Para quién
+        </div>
+        <h2 class="font-serif text-[clamp(2.5rem,5vw,4.5rem)] leading-[1.02] tracking-[-0.02em] font-light mb-6">
+          Para PMEs chilenas que <em class="italic text-[color:var(--copper-light)]">no tienen Aconex</em>.
+        </h2>
+        <p class="text-[color:var(--text-dim)] leading-[1.6] mb-4">
+          Las grandes mineras pagan licencias millonarias para gestores documentales y se las imponen a sus contratistas. Pero la PME que les sirve — guardia, alimentación, equipos, energía, montaje — termina con un Drive, una carpeta física en la oficina y mucha buena voluntad.
+        </p>
+        <p class="text-[color:var(--text-dim)] leading-[1.6]">
+          Diseñamos ContractFlow para ese universo: dueños, administradores de contrato, prevencionistas y gerentes que mueven la operación real de la minería chilena.
+        </p>
+      </div>
+
+      <div class="lg:col-span-7 space-y-px bg-[color:var(--border)] border border-[color:var(--border)] reveal reveal-d1">
+        <div class="bg-[color:var(--bg)] p-7 grid grid-cols-12 gap-6 items-baseline hover:bg-[color:var(--bg-2)] transition">
+          <div class="col-span-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--copper-light)]">Perfil&nbsp;01</div>
+          <div class="col-span-9">
+            <div class="font-serif text-[1.4rem] leading-tight">Administrador de contrato</div>
+            <div class="text-[13px] text-[color:var(--text-dim)] mt-1.5 leading-relaxed">Acreditaciones SIGA, control de obra, respuesta inmediata al mandante.</div>
+          </div>
+        </div>
+        <div class="bg-[color:var(--bg)] p-7 grid grid-cols-12 gap-6 items-baseline hover:bg-[color:var(--bg-2)] transition">
+          <div class="col-span-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--copper-light)]">Perfil&nbsp;02</div>
+          <div class="col-span-9">
+            <div class="font-serif text-[1.4rem] leading-tight">Gerente general · finanzas</div>
+            <div class="text-[13px] text-[color:var(--text-dim)] mt-1.5 leading-relaxed">Adjudicaciones, licitaciones, decisiones contractuales con el mandante.</div>
+          </div>
+        </div>
+        <div class="bg-[color:var(--bg)] p-7 grid grid-cols-12 gap-6 items-baseline hover:bg-[color:var(--bg-2)] transition">
+          <div class="col-span-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--copper-light)]">Perfil&nbsp;03</div>
+          <div class="col-span-9">
+            <div class="font-serif text-[1.4rem] leading-tight">Prevencionista de riesgos</div>
+            <div class="text-[13px] text-[color:var(--text-dim)] mt-1.5 leading-relaxed">Acreditación de personal, vigencia de pólizas, exigencias técnicas.</div>
+          </div>
+        </div>
+        <div class="bg-[color:var(--bg)] p-7 grid grid-cols-12 gap-6 items-baseline hover:bg-[color:var(--bg-2)] transition">
+          <div class="col-span-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--copper-light)]">Perfil&nbsp;04</div>
+          <div class="col-span-9">
+            <div class="font-serif text-[1.4rem] leading-tight">RR.HH.&thinsp;&amp;&thinsp;administración</div>
+            <div class="text-[13px] text-[color:var(--text-dim)] mt-1.5 leading-relaxed">Documentación de personal, facturas, plazos de garantía.</div>
+          </div>
+        </div>
+        <div class="bg-[color:var(--bg)] p-7 grid grid-cols-12 gap-6 items-baseline hover:bg-[color:var(--bg-2)] transition">
+          <div class="col-span-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[color:var(--copper-light)]">Perfil&nbsp;05</div>
+          <div class="col-span-9">
+            <div class="font-serif text-[1.4rem] leading-tight">Abogado externo asesor</div>
+            <div class="text-[13px] text-[color:var(--text-dim)] mt-1.5 leading-relaxed">Apoyo recurrente a varias PMEs simultáneamente.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Marquee -->
+    <div class="mt-24 -mx-6 lg:-mx-10 reveal">
+      <div class="font-mono text-[10px] uppercase tracking-[0.22em] text-[color:var(--text-muted)] mb-8 px-6 lg:px-10">
+        Mandantes habituales de nuestros usuarios
+      </div>
+      <div class="overflow-hidden border-y border-[color:var(--border)] py-10 bg-[color:var(--bg-2)]">
+        <div class="marquee flex gap-14 whitespace-nowrap font-serif text-[2.2rem] text-[color:var(--text-dim)] italic font-light">
+          <span>Codelco</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Antofagasta&nbsp;Minerals</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Minera&nbsp;Los&nbsp;Pelambres</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Colbún</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Minera&nbsp;Escondida</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>BHP</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Codelco</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Antofagasta&nbsp;Minerals</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Minera&nbsp;Los&nbsp;Pelambres</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Colbún</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>Minera&nbsp;Escondida</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+          <span>BHP</span>
+          <span class="text-[color:var(--copper)] not-italic">§</span>
+        </div>
+      </div>
+      <div class="font-mono text-[9px] uppercase tracking-[0.22em] text-[color:var(--text-muted)] mt-5 px-6 lg:px-10 italic max-w-3xl">
+        ContractFlow no está afiliado a ninguna de estas empresas. Las menciones reflejan los principales mandantes citados por los entrevistados durante el levantamiento.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── CTA ───────────────── -->
+<section id="cta" class="border-b border-[color:var(--border)] py-32 relative overflow-hidden">
+  <div class="glow-warm" style="top: 50%; left: 50%; transform: translate(-50%, -50%); width: 1100px; height: 1100px;"></div>
+  <div class="absolute inset-0 line-grid-faint opacity-50 pointer-events-none"></div>
+
+  <div class="max-w-3xl mx-auto px-6 lg:px-10 text-center relative reveal">
+    <div class="font-mono text-[11px] uppercase tracking-[0.22em] text-[color:var(--copper-light)] mb-6">
+      §06 · Acceso anticipado
+    </div>
+    <h2 class="font-serif text-[clamp(2.5rem,7vw,5.5rem)] leading-[1.02] tracking-[-0.02em] font-light mb-7">
+      ¿Listos para encontrar la <em class="italic text-[color:var(--copper-light)]">cláusula correcta</em> a la primera?
+    </h2>
+    <p class="text-[17px] text-[color:var(--text-dim)] mb-12 max-w-xl mx-auto leading-[1.6]">
+      Estamos abriendo cupos limitados para PMEs chilenas de construcción y servicios mineros. Onboarding gratuito durante el piloto.
+    </p>
+
+    <form id="ctaForm" class="max-w-lg mx-auto flex flex-col sm:flex-row gap-3" novalidate>
+      <input type="email" required placeholder="email@empresa.cl"
+        class="flex-1 bg-[color:var(--surface)] border border-[color:var(--border-2)] px-4 py-3.5 rounded-sm text-sm placeholder:text-[color:var(--text-muted)] focus:border-[color:var(--copper)] transition">
+      <button type="submit" class="btn-primary px-7 py-3.5 rounded-sm font-medium text-sm whitespace-nowrap">
+        Solicitar acceso
+      </button>
+    </form>
+
+    <div class="mt-10 flex items-center justify-center gap-6 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] flex-wrap">
+      <span class="flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-[color:var(--copper)]"></span> Sin tarjeta</span>
+      <span class="flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-[color:var(--copper)]"></span> Datos en Chile</span>
+      <span class="flex items-center gap-1.5"><span class="w-1 h-1 rounded-full bg-[color:var(--copper)]"></span> Soporte en español</span>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── FOOTER ───────────────── -->
+<footer class="py-20">
+  <div class="max-w-[1280px] mx-auto px-6 lg:px-10">
+
+    <div class="grid md:grid-cols-12 gap-10">
+
+      <div class="md:col-span-5">
+        <div class="flex items-center gap-3 mb-5">
+          <svg viewBox="0 0 32 32" class="w-7 h-7">
+            <rect x="5" y="3" width="22" height="26" rx="1" fill="none" stroke="var(--copper)" stroke-width="1.6"/>
+            <line x1="10" y1="10" x2="20" y2="10" stroke="var(--text)" stroke-width="1.4"/>
+            <line x1="10" y1="15" x2="24" y2="15" stroke="var(--text)" stroke-width="1.4"/>
+            <line x1="10" y1="20" x2="17" y2="20" stroke="var(--text)" stroke-width="1.4"/>
+            <circle cx="23" cy="23" r="3.5" fill="var(--copper)" opacity="0.5"/>
+          </svg>
+          <span class="font-serif text-lg italic">ContractFlow</span>
+        </div>
+        <p class="text-sm text-[color:var(--text-dim)] max-w-sm leading-[1.6] mb-6">
+          Inteligencia artificial para administración de contratos legales. Hecho en Chile, para PMEs chilenas del rubro de construcción y servicios mineros.
+        </p>
+        <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)] flex items-center gap-3">
+          <span class="border border-[color:var(--border)] px-2 py-1">v.0.1·beta</span>
+          <span>Última actualización: 05·2026</span>
+        </div>
+      </div>
+
+      <div class="md:col-span-3">
+        <div class="font-mono text-[10px] uppercase tracking-[0.22em] text-[color:var(--text-muted)] mb-5">
+          Producto
+        </div>
+        <ul class="space-y-2.5 text-sm text-[color:var(--text-dim)]">
+          <li><a href="#problema" class="hover:text-[color:var(--copper-light)] transition">El problema</a></li>
+          <li><a href="#demo" class="hover:text-[color:var(--copper-light)] transition">Demo</a></li>
+          <li><a href="#capacidades" class="hover:text-[color:var(--copper-light)] transition">Capacidades</a></li>
+          <li><a href="#perfiles" class="hover:text-[color:var(--copper-light)] transition">Para quién</a></li>
+          <li><a href="#cta" class="hover:text-[color:var(--copper-light)] transition">Solicitar acceso</a></li>
+        </ul>
+      </div>
+
+      <div class="md:col-span-4">
+        <div class="font-mono text-[10px] uppercase tracking-[0.22em] text-[color:var(--text-muted)] mb-5">
+          Equipo · ICN&nbsp;314 · PUCV&nbsp;2026
+        </div>
+        <ul class="space-y-1.5 text-sm text-[color:var(--text-dim)]">
+          <li class="flex items-center gap-2"><span class="font-mono text-[10px] text-[color:var(--copper)]/60">01</span>Benjamín Ángel Fernández</li>
+          <li class="flex items-center gap-2"><span class="font-mono text-[10px] text-[color:var(--copper)]/60">02</span>Yanais Valenzuela Salinas</li>
+          <li class="flex items-center gap-2"><span class="font-mono text-[10px] text-[color:var(--copper)]/60">03</span>Antonia Acevedo Tassara</li>
+          <li class="flex items-center gap-2"><span class="font-mono text-[10px] text-[color:var(--copper)]/60">04</span>Nicolás Binimelis Barrera</li>
+          <li class="flex items-center gap-2"><span class="font-mono text-[10px] text-[color:var(--copper)]/60">05</span>María Paz Iturrieta Zúñiga</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section-rule mt-14 mb-7"></div>
+
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
+      <span>© 2026 ContractFlow · Proyecto académico</span>
+      <span class="flex items-center gap-2">
+        <span>Pontificia Universidad Católica de Valparaíso</span>
+        <span class="text-[color:var(--copper)]">·</span>
+        <span>ICN 314</span>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Scroll-triggered reveals
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  // Demo chat trigger
+  const demoBox = document.querySelector('.demo-container');
+  if (demoBox) {
+    const demoIO = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('demo-active');
+          demoIO.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.25 });
+    demoIO.observe(demoBox);
+  }
+
+  // Form handler
+  const form = document.getElementById('ctaForm');
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = form.querySelector('input');
+      const btn = form.querySelector('button');
+      if (!input.value || !input.value.includes('@')) {
+        input.style.borderColor = 'var(--copper)';
+        input.focus();
+        return;
+      }
+      btn.textContent = '✓ Recibida';
+      btn.style.background = 'var(--copper)';
+      btn.style.color = 'var(--bg)';
+      input.disabled = true;
+      input.style.opacity = '0.5';
+    });
+  }
+</script>
+
+</body>
+</html>
