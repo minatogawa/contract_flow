@@ -13,6 +13,21 @@ Acesse:
 - Landing: http://localhost:3140
 - Demo: http://localhost:3140/app
 
+## Rodar com Docker
+
+Copie `.env.example` para `.env` e ajuste as credenciais. Depois:
+
+```powershell
+docker compose up --build
+```
+
+Por padrao o container expoe:
+
+- Landing: http://localhost:3140
+- Demo: http://localhost:3140/app
+
+Para trocar a porta publicada no host, ajuste `HOST_PORT` no `.env`. Os dados locais do app ficam persistidos no volume Docker `contractflow-data`.
+
 ## Configurar IA
 
 Edite `.env`:

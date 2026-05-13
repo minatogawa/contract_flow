@@ -1,0 +1,18 @@
+services:
+  contractflow:
+    build: .
+    image: contractflow-demo:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3140
+      APP_URL: ${APP_URL:-http://localhost:3140}
+    ports:
+      - "${HOST_PORT:-3140}:3140"
+    volumes:
+      - contractflow-data:/app/data
+
+volumes:
+  contractflow-data:
